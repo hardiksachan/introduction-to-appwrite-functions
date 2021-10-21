@@ -1,31 +1,46 @@
 import io.ktor.client.*
-import io.ktor.client.features.json.JsonFeature
+import io.ktor.client.features.json.*
+import io.ktor.client.features.json.serializer.*
 import io.ktor.client.request.*
 import io.ktor.utils.io.core.*
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import model.ICovidStats
+import model.FunctionResult
 import model.Response
 
 suspend fun main() {
     val country = readCountryFromEnv()
 
+    val jsonParser = Json {
+        isLenient = true
+        ignoreUnknownKeys = true
+    }
+
     HttpClient() {
         install(JsonFeature) {
-            Json {
-                isLenient = true
-                ignoreUnknownKeys = true
-            }
+            serializer = KotlinxSerializer(json = jsonParser)
         }
     }.use { client ->
         val response: Response = client.get("https://api.covid19api.com/summary")
 
-        val stats: ICovidStats = response.countries.find {
+        val result: FunctionResult = response.countries.find {
             it.country.equals(country, ignoreCase = true) ||
                     it.countryCode.equals(country, ignoreCase = true) ||
                     it.slug.equals(country, ignoreCase = true)
-        } ?: throw IllegalStateException()
-    }
+        }?.run {
+            FunctionResult(
+                false, newConfirmed, totalConfirmed, newDeaths,
+                totalDeaths, newRecovered, totalRecovered
+            )
+        } ?: response.global.run {
+            FunctionResult(
+                true, newConfirmed, totalConfirmed, newDeaths,
+                totalDeaths, newRecovered, totalRecovered
+            )
+        }
 
+        println(jsonParser.encodeToString(result))
+    }
 }
 
 fun readCountryFromEnv(): String =
